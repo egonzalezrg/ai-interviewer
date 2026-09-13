@@ -1591,6 +1591,9 @@ openai = [
 silero = [
     { name = "livekit-plugins-silero" },
 ]
+simli = [
+    { name = "livekit-plugins-simli" },
+]
 turn-detector = [
     { name = "livekit-plugins-turn-detector" },
 ]
@@ -1751,6 +1754,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e2/08/b49d6e031b25dad3234f9338ca6f0ba6130b9cf19c8189f21e618e629b57/livekit_plugins_silero-1.8.1.tar.gz", hash = "sha256:7f7074715a743c34f8fab916afd0e02687c4673a0bc7847306a838b5ccb143eb", size = 1955430, upload-time = "2026-09-10T19:01:00.197Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c4/46/640479a33ac0a336385327980b2f643770313a8529119dbb4856eaa997ba/livekit_plugins_silero-1.8.1-py3-none-any.whl", hash = "sha256:0a41ab3454a0102073cb36457a3b005133d7ead1e836f5541efd6af16cfb4a61", size = 3903145, upload-time = "2026-09-10T19:00:58.571Z" },
+]
+
+[[package]]
+name = "livekit-plugins-simli"
+version = "1.8.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "livekit-agents" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9a/b6/861fb152eb3de8a6da299fd59535996a910d25d19ecd449e8c69470f9566/livekit_plugins_simli-1.8.1.tar.gz", hash = "sha256:e9114c1cb1743835b79ceface2cd8bbbd8a8948e3889af5e5e244c0106e177af", size = 5197, upload-time = "2026-09-10T19:01:36.326Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6f/3d/07ad5534b5f97d3e35af72cc590875c504c29f0102aa14bc686237853eb7/livekit_plugins_simli-1.8.1-py3-none-any.whl", hash = "sha256:295a29f841253b25c2a0df8e21fd899a8d2b124856bafc5412df6d9c7d36521d", size = 5276, upload-time = "2026-09-10T19:01:35.116Z" },
 ]
 
 [[package]]
@@ -3342,7 +3357,7 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "langchain-text-splitters" },
     { name = "langgraph" },
-    { name = "livekit-agents", extra = ["cartesia", "deepgram", "openai", "silero", "turn-detector"] },
+    { name = "livekit-agents", extra = ["cartesia", "deepgram", "openai", "silero", "simli", "turn-detector"] },
     { name = "livekit-plugins-langchain" },
     { name = "livekit-plugins-noise-cancellation" },
     { name = "pypdf" },
@@ -3357,7 +3372,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=1.6.2" },
     { name = "langchain-text-splitters", specifier = ">=1.1.2" },
     { name = "langgraph", specifier = ">=1.2.11" },
-    { name = "livekit-agents", extras = ["cartesia", "deepgram", "openai", "silero", "turn-detector"], specifier = "~=1.2" },
+    { name = "livekit-agents", extras = ["cartesia", "deepgram", "simli", "openai", "silero", "turn-detector"], specifier = "~=1.8.1" },
     { name = "livekit-plugins-langchain", specifier = "==1.8.1" },
     { name = "livekit-plugins-noise-cancellation", specifier = "~=0.2" },
     { name = "pypdf", specifier = ">=6.18.1" },

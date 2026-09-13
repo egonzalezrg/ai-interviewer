@@ -1,5 +1,6 @@
+import asyncio
+import os
 from dotenv import load_dotenv
-
 from livekit import agents
 from livekit.agents import AgentSession, Agent, RoomInputOptions
 from livekit.plugins import (
@@ -8,6 +9,7 @@ from livekit.plugins import (
     deepgram,
     noise_cancellation,
     silero,
+    simli,
 )
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
@@ -53,6 +55,15 @@ async def entrypoint(ctx: agents.JobContext):
         turn_detection=MultilingualModel(),
     )
 
+    avatar = simli.AvatarSession(
+        simli_config=simli.SimliConfig(
+            api_key=os.getenv("SIMLI_API_KEY"),
+            face_id=os.getenv("SIMLI_FACE_ID"),
+        ),
+    )
+
+    await avatar.start(session, room=ctx.room)
+    
     await session.start(
         room=ctx.room,
         agent=InterviewAgent(),
@@ -63,6 +74,8 @@ async def entrypoint(ctx: agents.JobContext):
 
     print("Starting interview workflow...")
 
+    await asyncio.sleep(1.5) #give the avatar a moment to finish initializing before the first greeting
+    
     #requests the opening interview question when the session starts.
     await session.generate_reply(
         instructions=(
@@ -74,5 +87,8 @@ async def entrypoint(ctx: agents.JobContext):
 
 if __name__ == "__main__":
     agents.cli.run_app(
-        agents.WorkerOptions(entrypoint_fnc=entrypoint)
+        agents.WorkerOptions(
+            entrypoint_fnc=entrypoint,
+            agent_name="ai-interviewer",
+        )
     )

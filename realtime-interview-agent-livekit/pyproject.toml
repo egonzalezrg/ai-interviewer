@@ -9,7 +9,7 @@ dependencies = [
     "langchain-openai>=1.6.2",
     "langchain-text-splitters>=1.1.2",
     "langgraph>=1.2.11",
-    "livekit-agents[cartesia,deepgram,openai,silero,turn-detector]~=1.2",
+    "livekit-agents[cartesia,deepgram,simli,openai,silero,turn-detector]~=1.8.1",
     "livekit-plugins-langchain==1.8.1",
     "livekit-plugins-noise-cancellation~=0.2",
     "pypdf>=6.18.1",

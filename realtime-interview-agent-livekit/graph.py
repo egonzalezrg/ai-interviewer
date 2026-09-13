@@ -168,7 +168,6 @@ def create_workflow():
         if not getattr(message, "tool_calls", None):
             writer = get_stream_writer()
             writer({"content": message.content})
-            print("SENT FINAL RESPONSE TO VOICE")
 
         return {"messages": [message]}
 
