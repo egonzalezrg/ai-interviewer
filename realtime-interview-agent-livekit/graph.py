@@ -1,33 +1,47 @@
-# graph.py
-from dotenv import load_dotenv #Lets Python load the API keys/settings stored in .env.local.
-import os #so we have access to write in a file, for recoding our responses
-from typing import TypedDict, Annotated, Sequence #these help define the shape of the graph state.the state is basically a set of data that is being passed through the graph and partially modified as it moves around nodes   
-from operator import add as add_messages #tells lang graph how to accumulate messages across turns. 
+from dotenv import load_dotenv
+import os
+from typing import TypedDict, Annotated, Sequence
+from operator import add as add_messages
 
-from langgraph.graph import StateGraph, END #give me the graph object and a special end marker when we know to actually return our response and have that agent speak that out
-from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, ToolMessage, AIMessage # chat bubbles which the LLM understands 
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings #for our LLM in the node, embedding takes our data and puts it into vectorized format. meaning we're going to have a pdf for our company information and the info in it is goign to be embedded as some form of numerical value. this helps when we're doing rag because when our agent takes our question, it queries the database for information that is numerically close to what we are asking to return to us a response  
-from langchain_community.document_loaders import PyPDFLoader # chunk down our pdf  and tools 
+from langgraph.config import get_stream_writer
+from langgraph.graph import StateGraph, END
+from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma #chroma for the database
-from langchain_core.tools import tool #for the agent to call tools async in real time
+from langchain_chroma import Chroma
+from langchain_core.tools import tool
+
 
 load_dotenv(".env.local")
 
-# -------------------- Build your Interview RAG pipeline --------------------
+
 def create_workflow():
+    """Create the LangGraph workflow used to run the interview."""
+
     llm = ChatOpenAI(model="gpt-4o", temperature=0.7)
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
+    #loads the company knowledge base used for RAG.
     pdf_path = os.getenv("COMPANY_PDF_PATH", "./company_profile.pdf")
+
     if not os.path.exists(pdf_path):
-        raise FileNotFoundError(f"PDF file not found: {pdf_path}. Please set COMPANY_PDF_PATH environment variable or place TechCompanyInfo.pdf in the current directory.")
+        raise FileNotFoundError(
+            f"PDF file not found: {pdf_path}. "
+            "Please set COMPANY_PDF_PATH or place company_profile.pdf "
+            "in the current directory."
+        )
 
     pages = PyPDFLoader(pdf_path).load()
 
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    #splits the document into overlapping chunks for semantic retrieval.
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+    )
     pages_split = text_splitter.split_documents(pages)
 
+    #stores document embeddings in Chroma for company information searches.
     persist_directory = os.getenv("CHROMA_DIR", "./chroma_store")
     os.makedirs(persist_directory, exist_ok=True)
 
@@ -38,135 +52,176 @@ def create_workflow():
         collection_name="company_info",
     )
 
-    retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 2})
+    retriever = vectorstore.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k": 2},
+    )
 
     @tool
     def company_info_tool(query: str) -> str:
-        """Searches the company information document and returns relevant chunks about the company."""
+        """Retrieve company information relevant to a candidate's question."""
+
         docs = retriever.invoke(query)
+
         if not docs:
             return "No relevant information found in the company documents."
-        # Build the result string step by step for beginners
+
         result_parts = []
+
         for i, doc in enumerate(docs):
             info_number = i + 1
             content = doc.page_content
             formatted_info = f"Info {info_number}:\n{content}"
             result_parts.append(formatted_info)
-        
-        # Join all parts with double newlines
+
         return "\n\n".join(result_parts)
 
     @tool
     def record_answer_tool(answer: str) -> str:
-        """Records the candidate's answer to a text file for later review."""
-        # Simply write the answer to the file
+        """Save a candidate's interview answer for later review."""
+
         with open("interview_answers.txt", "a", encoding="utf-8") as f:
             f.write(f"\nAnswer:\n{answer}\n")
             f.write("-" * 50 + "\n")
-        
+
         print(f"Recorded answer: {answer[:50]}...")
         return "Answer recorded successfully!"
 
-    tools = [company_info_tool, record_answer_tool]
+    tools = [
+        company_info_tool,
+        record_answer_tool,
+    ]
+
     llm = llm.bind_tools(tools)
 
     class InterviewState(TypedDict):
+        """State passed between nodes in the interview graph."""
+
         messages: Annotated[Sequence[BaseMessage], add_messages]
 
     def decide_next_action(state: InterviewState) -> str:
-        """Decide what to do next: tool_executor or end"""
-        last = state["messages"][-1]
-        
-        # Check if we need to execute tool calls from the LLM
-        if hasattr(last, "tool_calls") and last.tool_calls and len(last.tool_calls) > 0:
+        """Route LLM tool calls to the tool executor."""
+
+        last_message = state["messages"][-1]
+
+        if (
+            hasattr(last_message, "tool_calls")
+            and last_message.tool_calls
+            and len(last_message.tool_calls) > 0
+        ):
             return "tool_executor"
-        
-        # Default to end if no specific action needed
+
         return "end"
 
     def call_llm(state: InterviewState) -> InterviewState:
-        """Main LLM call that handles the interview conversation."""
+        """Generate the interviewer's next response."""
+
         system_prompt = (
             "You are a professional interviewer conducting a job interview. "
             "You will ask structured questions in this order:\n"
-            "1. First: 'Hello! Thank you for joining us today. To get started, could you tell me a little about yourself and your background?'\n"
-            "2. After they respond: 'That's great to hear! Now, I'd love to learn about your technical background. Could you tell me about your experience with technology? What technologies, programming languages, or technical projects have you worked with?'\n"
-            "3. After they respond: 'Excellent! Now, I'd like to hear about a time when you faced a significant challenge, either technical or professional. Could you walk me through the situation, what obstacles you encountered, and how you overcame them? What did you learn from that experience?'\n"
-            "4. After they respond: 'Thank you for sharing that with me. Now, I'd like to give you the opportunity to ask me anything about our company, the role, or anything else you'd like to know. What questions do you have for me?'\n\n"
+            "1. First: 'Hello! Thank you for joining us today. To get started, "
+            "could you tell me a little about yourself and your background?'\n"
+            "2. After they respond: 'That's great to hear! Now, I'd love to learn "
+            "about your technical background. Could you tell me about your experience "
+            "with technology? What technologies, programming languages, or technical "
+            "projects have you worked with?'\n"
+            "3. After they respond: 'Excellent! Now, I'd like to hear about a time "
+            "when you faced a significant challenge, either technical or professional. "
+            "Could you walk me through the situation, what obstacles you encountered, "
+            "and how you overcame them? What did you learn from that experience?'\n"
+            "4. After they respond: 'Thank you for sharing that with me. Now, I'd "
+            "like to give you the opportunity to ask me anything about our company, "
+            "the role, or anything else you'd like to know. What questions do you "
+            "have for me?'\n\n"
+
             "IMPORTANT ROUTING RULES:\n"
-            "- When the candidate asks questions about the company (mission, culture, revenue, etc.), use the company_info_tool to find relevant information\n"
-            "- When the candidate gives answers to your interview questions, use the record_answer_tool to record their response, then acknowledge it and ask the next question\n"
+            "- When the candidate asks questions about the company (mission, culture, "
+            "revenue, etc.), use the company_info_tool to find relevant information\n"
+            "- When the candidate gives answers to your interview questions, use the "
+            "record_answer_tool to record their response, then acknowledge it and ask "
+            "the next question\n\n"
+
             "IMPORTANT VOICE RESPONSE RULES:\n"
             "- This is a live spoken interview, so keep responses concise and natural\n"
             "- For simple factual questions, answer in 1-2 short sentences\n"
-            "- When company_info_tool returns information, use it only as reference material to answer the candidate's specific question\n"
+            "- When company_info_tool returns information, use it only as reference "
+            "material to answer the candidate's specific question\n"
             "- NEVER read the retrieved document text word-for-word\n"
-            "- NEVER read document headings, page numbers, footers, labels such as 'Info 1', or unrelated sections\n"
+            "- NEVER read document headings, page numbers, footers, labels such as "
+            "'Info 1', or unrelated sections\n"
             "- Do not summarize the entire retrieved result\n"
             "- Only include information directly relevant to the candidate's question\n"
             "- Do not mention the knowledge base, retrieval system, document, or tool\n"
-            "- After answering a company question, stop speaking and allow the candidate to respond\n"
+            "- After answering a company question, stop speaking and allow the "
+            "candidate to respond\n"
         )
+
+        messages = [
+            SystemMessage(content=system_prompt)
+        ] + list(state["messages"])
+
+        message = llm.invoke(messages)
+
         
-        msgs = [SystemMessage(content=system_prompt)] + list(state["messages"])
-        message = llm.invoke(msgs)
+        #only send completed conversational responses to the voice layer.
+        #tool-call messages remain internal to the LangGraph workflow.
+        if not getattr(message, "tool_calls", None):
+            writer = get_stream_writer()
+            writer({"content": message.content})
+            print("SENT FINAL RESPONSE TO VOICE")
+
         return {"messages": [message]}
 
     def tool_executor(state: InterviewState) -> InterviewState:
-        """Execute tool calls from the LLM's response."""
-        # Get the tool calls from the last message
+        """Execute tools requested by the interview LLM."""
+
         tool_calls = state["messages"][-1].tool_calls
         results = []
 
-        # Go through each tool call one by one
         for tool_call in tool_calls:
             tool_name = tool_call["name"]
             tool_args = tool_call.get("args", {})
-            
+
             print(f"Running tool: {tool_name}")
 
-            # Call the right tool based on its name
             if tool_name == "company_info_tool":
                 result = company_info_tool.invoke(tool_args)
+
             elif tool_name == "record_answer_tool":
                 result = record_answer_tool.invoke(tool_args)
+
             else:
                 result = f"Unknown tool: {tool_name}"
 
-            # Create a message with the result
             tool_message = ToolMessage(
                 tool_call_id=tool_call["id"],
                 name=tool_name,
                 content=str(result),
             )
+
             results.append(tool_message)
 
         print("All tools finished running.")
+
         return {"messages": results}
 
-
-    # Build the interview graph
+    #build the interview graph and connect its execution paths.
     graph = StateGraph(InterviewState)
-    
-    # Add nodes
+
     graph.add_node("llm", call_llm)
     graph.add_node("tool_executor", tool_executor)
-    
-    # Set up the flow
+
     graph.set_entry_point("llm")
-    
-    # Conditional edges from LLM
+
     graph.add_conditional_edges(
-        "llm", 
-        decide_next_action, 
+        "llm",
+        decide_next_action,
         {
             "tool_executor": "tool_executor",
-            "end": END
-        }
+            "end": END,
+        },
     )
-    
-    # From tool_executor back to LLM
+
     graph.add_edge("tool_executor", "llm")
 
     return graph.compile()
